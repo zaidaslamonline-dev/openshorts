@@ -9,14 +9,6 @@ on:
       - "requirements*.txt"
       - "Dockerfile"
       - "**/*.py"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/gta6-mp4-test.yml"
-      - "main.py"
-      - "requirements*.txt"
-      - "Dockerfile"
-      - "**/*.py"
   workflow_dispatch:
 
 permissions:
@@ -57,12 +49,15 @@ jobs:
       - name: Run OpenShorts on the sample VOD
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/output"
           if [ -n "$GEMINI_API_KEY" ]; then
             echo "Gemini key found: running AI clip selection + rendering."
             docker run --rm --shm-size=2g \
               -e GEMINI_API_KEY \
+              -e YOUTUBE_COOKIES \
+              -e YOUTUBE_COOKIES \
               -e WHISPER_MODEL=base \
               -e WHISPER_DEVICE=cpu \
               -e WHISPER_COMPUTE=int8 \
