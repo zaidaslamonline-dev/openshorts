@@ -41,8 +41,8 @@ jobs:
 
       - name: Set up the public test VOD
         run: |
-          echo "SOURCE_URL=https://www.youtube.com/watch?v=-KbQj_vboOU" >> "$GITHUB_ENV"
-          echo "Using the CC BY sample video documented by the upstream OpenShorts README."
+          echo "SOURCE_URL=https://www.youtube.com/watch?v=UfxyoHa3Sx0" >> "$GITHUB_ENV"
+          echo "Using the first user-provided GTA 5 VOD for the production pipeline test."
 
       - name: Show runner capacity and free disk
         run: |
