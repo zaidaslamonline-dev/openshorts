@@ -1,12 +1,15 @@
 name: GTA 6 VOD to MP4 (CPU test)
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/gta6-mp4-test.yml"
+      - "main.py"
+      - "requirements*.txt"
+      - "Dockerfile"
+      - "**/*.py"
   workflow_dispatch:
-    inputs:
-      source_url:
-        description: "Public YouTube/Twitch VOD URL (keep the first test short: 5–10 minutes)"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -25,14 +28,10 @@ jobs:
         with:
           ref: gta6-production-test
 
-      - name: Validate required API secret
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Set up the public test VOD
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "::error::Add GEMINI_API_KEY in Settings > Secrets and variables > Actions before running the VOD pipeline."
-            exit 1
-          fi
+          echo "SOURCE_URL=https://www.youtube.com/watch?v=-KbQj_vboOU" >> "$GITHUB_ENV"
+          echo "Using the CC BY sample video documented by the upstream OpenShorts README."
 
       - name: Show runner capacity and free disk
         run: |
@@ -44,23 +43,37 @@ jobs:
         run: |
           docker build --build-arg GPU=0 --tag openshorts-cpu:gta6-test .
 
-      - name: Run OpenShorts on the supplied VOD
+      - name: Run OpenShorts on the sample VOD
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SOURCE_URL: ${{ inputs.source_url }}
         run: |
           mkdir -p "$GITHUB_WORKSPACE/output"
-          docker run --rm --shm-size=2g \
-            -e GEMINI_API_KEY \
-            -e WHISPER_MODEL=base \
-            -e WHISPER_DEVICE=cpu \
-            -e WHISPER_COMPUTE=int8 \
-            -e CLIP_WORKERS=1 \
-            -e FFMPEG_THREADS=2 \
-            -e AUTO_LAYOUT=0 \
-            -v "$GITHUB_WORKSPACE/output:/app/output" \
-            openshorts-cpu:gta6-test \
-            python main.py --url "$SOURCE_URL" --output /app/output --keep-original
+          if [ -n "$GEMINI_API_KEY" ]; then
+            echo "Gemini key found: running AI clip selection + rendering."
+            docker run --rm --shm-size=2g \
+              -e GEMINI_API_KEY \
+              -e WHISPER_MODEL=base \
+              -e WHISPER_DEVICE=cpu \
+              -e WHISPER_COMPUTE=int8 \
+              -e CLIP_WORKERS=1 \
+              -e FFMPEG_THREADS=2 \
+              -e AUTO_LAYOUT=0 \
+              -v "$GITHUB_WORKSPACE/output:/app/output" \
+              openshorts-cpu:gta6-test \
+              python main.py --url "$SOURCE_URL" --output /app/output --keep-original
+          else
+            echo "::warning::GEMINI_API_KEY is not configured. Running the real download + CPU reframing/export path without AI moment selection."
+            docker run --rm --shm-size=2g \
+              -e WHISPER_MODEL=base \
+              -e WHISPER_DEVICE=cpu \
+              -e WHISPER_COMPUTE=int8 \
+              -e CLIP_WORKERS=1 \
+              -e FFMPEG_THREADS=2 \
+              -e AUTO_LAYOUT=0 \
+              -v "$GITHUB_WORKSPACE/output:/app/output" \
+              openshorts-cpu:gta6-test \
+              python main.py --url "$SOURCE_URL" --output /app/output --keep-original --skip-analysis
+          fi
 
       - name: Verify MP4 output exists and is non-empty
         run: |
