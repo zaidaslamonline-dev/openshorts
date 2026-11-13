@@ -44,8 +44,8 @@ jobs:
           case "$YOUTUBE_COOKIES" in '# Netscape HTTP Cookie File'*|'# HTTP Cookie File'*) ;; *) echo "::error::YOUTUBE_COOKIES is not in Netscape cookies.txt format. Re-export it."; exit 1 ;; esac
           # Check for actual YouTube authentication-cookie rows, not merely a
           # correctly named text file. Never print cookie names or values.
-          if ! printf '%s\\n' "$YOUTUBE_COOKIES" | awk -F '\\t' '
-            !/^#/ && NF >= 7 && ($1 ~ /(^|\\.)youtube\\.com$/ || $1 ~ /(^|\\.)google\\.com$/) {
+          if ! printf '%s\n' "$YOUTUBE_COOKIES" | awk -F '\t' '
+            !/^#/ && NF >= 7 && ($1 ~ /(^|\.)youtube\.com$/ || $1 ~ /(^|\.)google\.com$/) {
               name=$6
               if (name == "SAPISID" || name == "__Secure-3PAPISID" ||
                   name == "__Secure-3PSID" || name == "__Secure-1PSID" ||
