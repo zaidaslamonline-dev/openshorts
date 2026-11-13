@@ -1,0 +1,95 @@
+name: GTA 6 VOD to MP4 (CPU test)
+
+on:
+  push:
+    branches: [gta6-production-test]
+    paths:
+      - ".github/workflows/gta6-mp4-test.yml"
+      - "main.py"
+      - "requirements*.txt"
+      - "Dockerfile"
+      - "**/*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gta6-mp4-test
+  cancel-in-progress: false
+
+jobs:
+  render:
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[run-vod-test]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Check out production-test branch
+        uses: actions/checkout@v4
+        with:
+          ref: gta6-production-test
+
+      - name: Set up the public test VOD
+        run: |
+          echo "SOURCE_URL=https://www.youtube.com/watch?v=UfxyoHa3Sx0" >> "$GITHUB_ENV"
+          echo "Using the first user-provided GTA 5 VOD for the production pipeline test."
+
+      - name: Validate required AI and YouTube credentials (without exposing them)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          test -n "$GEMINI_API_KEY" || { echo "::error::GEMINI_API_KEY is missing; refusing a non-AI fallback run."; exit 1; }
+          test -n "$YOUTUBE_COOKIES" || { echo "::error::YOUTUBE_COOKIES is missing."; exit 1; }
+          case "$YOUTUBE_COOKIES" in '# Netscape HTTP Cookie File'*|'# HTTP Cookie File'*) ;; *) echo "::error::YOUTUBE_COOKIES is not in Netscape cookies.txt format. Re-export it."; exit 1 ;; esac
+          # Check for actual YouTube authentication-cookie rows, not merely a
+          # correctly named text file. Never print cookie names or values.
+          if ! printf '%s\n' "$YOUTUBE_COOKIES" | awk -F '\t' '
+            !/^#/ && NF >= 7 && ($1 ~ /(^|\.)youtube\.com$/ || $1 ~ /(^|\.)google\.com$/) {
+              name=$6
+              if (name == "SAPISID" || name == "__Secure-3PAPISID" ||
+                  name == "__Secure-3PSID" || name == "__Secure-1PSID" ||
+                  name == "SID") found=1
+            }
+            END { exit(found ? 0 : 1) }
+          '; then
+            echo "::error::Cookie file has no recognizable YouTube sign-in cookies. Refresh and re-export a fresh YouTube session, then replace the YOUTUBE_COOKIES secret."
+            exit 1
+          fi
+          echo "Required credentials and YouTube sign-in cookie structure validated. Values were not printed."
+
+      - name: Show runner capacity and free disk
+        run: |
+          echo "CPU: $(nproc)"
+          free -h
+          df -h /
+
+      - name: Build the project's CPU Docker image
+        run: |
+          docker build --build-arg GPU=0 --tag openshorts-cpu:gta6-test .
+
+      - name: Run OpenShorts on the sample VOD
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          docker run --rm --shm-size=2g -e GEMINI_API_KEY -e YOUTUBE_COOKIES -e WHISPER_MODEL=base -e WHISPER_DEVICE=cpu -e WHISPER_COMPUTE=int8 -e CLIP_WORKERS=1 -e FFMPEG_THREADS=2 -e AUTO_LAYOUT=0 -v "$GITHUB_WORKSPACE/output:/app/output" openshorts-cpu:gta6-test python main.py --url "$SOURCE_URL" --output /app/output --keep-original
+
+      - name: Verify MP4 output exists and is non-empty
+        run: |
+          find output -type f -name '*.mp4' -size +0c -print
+          count="$(find output -type f -name '*.mp4' -size +0c | wc -l)"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::Pipeline finished without producing an MP4."
+            exit 1
+          fi
+          echo "Verified $count non-empty MP4 file(s)."
+
+      - name: Upload MP4 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta6-clips-mp4
+          path: output/**/*.mp4
+          if-no-files-found: error
+          retention-days: 1
