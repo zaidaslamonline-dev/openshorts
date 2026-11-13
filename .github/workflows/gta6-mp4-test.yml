@@ -1,0 +1,81 @@
+name: GTA 6 VOD to MP4 (CPU test)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: "Public YouTube/Twitch VOD URL (keep the first test short: 5–10 minutes)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gta6-mp4-test
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Check out production-test branch
+        uses: actions/checkout@v4
+        with:
+          ref: gta6-production-test
+
+      - name: Validate required API secret
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::Add GEMINI_API_KEY in Settings > Secrets and variables > Actions before running the VOD pipeline."
+            exit 1
+          fi
+
+      - name: Show runner capacity and free disk
+        run: |
+          echo "CPU: $(nproc)"
+          free -h
+          df -h /
+
+      - name: Build the project's CPU Docker image
+        run: |
+          docker build --build-arg GPU=0 --tag openshorts-cpu:gta6-test .
+
+      - name: Run OpenShorts on the supplied VOD
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SOURCE_URL: ${{ inputs.source_url }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          docker run --rm --shm-size=2g \
+            -e GEMINI_API_KEY \
+            -e WHISPER_MODEL=base \
+            -e WHISPER_DEVICE=cpu \
+            -e WHISPER_COMPUTE=int8 \
+            -e CLIP_WORKERS=1 \
+            -e FFMPEG_THREADS=2 \
+            -e AUTO_LAYOUT=0 \
+            -v "$GITHUB_WORKSPACE/output:/app/output" \
+            openshorts-cpu:gta6-test \
+            python main.py --url "$SOURCE_URL" --output /app/output --keep-original
+
+      - name: Verify MP4 output exists and is non-empty
+        run: |
+          find output -type f -name '*.mp4' -size +0c -print
+          count="$(find output -type f -name '*.mp4' -size +0c | wc -l)"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::Pipeline finished without producing an MP4."
+            exit 1
+          fi
+          echo "Verified $count non-empty MP4 file(s)."
+
+      - name: Upload MP4 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta6-clips-mp4
+          path: output/**/*.mp4
+          if-no-files-found: error
+          retention-days: 1
