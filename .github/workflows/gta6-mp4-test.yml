@@ -1,6 +1,14 @@
 name: GTA 6 VOD to MP4 (CPU test)
 
 on:
+  push:
+    branches: [gta6-production-test]
+    paths:
+      - ".github/workflows/gta6-mp4-test.yml"
+      - "main.py"
+      - "requirements*.txt"
+      - "Dockerfile"
+      - "**/*.py"
   pull_request:
     branches: [main]
     paths:
@@ -20,6 +28,9 @@ concurrency:
 
 jobs:
   render:
+    # Avoid spending runner time on workflow-maintenance commits. Add [run-vod-test]
+    # to a push commit message only when a source VOD is ready to test.
+    if: github.event_name != 'push' || contains(github.event.head_commit.message, '[run-vod-test]')
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
