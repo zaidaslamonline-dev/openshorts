@@ -42,6 +42,55 @@ jobs:
           free -h
           df -h /
 
+      - name: Validate required AI and YouTube credentials (without exposing them)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          test -n "$GEMINI_API_KEY" || { echo "::error::GEMINI_API_KEY is missing; refusing a non-AI fallback run."; exit 1; }
+          test -n "$YOUTUBE_COOKIES" || { echo "::error::YOUTUBE_COOKIES is missing."; exit 1; }
+          printf '%s\\n' "$YOUTUBE_COOKIES" | grep -q '^# Netscape HTTP Cookie File        run: |
+          docker build --build-arg GPU=0 --tag openshorts-cpu:gta6-test .
+
+      - name: Run OpenShorts on the sample VOD
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          docker run --rm --shm-size=2g \\
+            -e GEMINI_API_KEY \\
+            -e YOUTUBE_COOKIES \\
+            -e WHISPER_MODEL=base \\
+            -e WHISPER_DEVICE=cpu \\
+            -e WHISPER_COMPUTE=int8 \\
+            -e CLIP_WORKERS=1 \\
+            -e FFMPEG_THREADS=2 \\
+            -e AUTO_LAYOUT=0 \\
+            -v "$GITHUB_WORKSPACE/output:/app/output" \\
+            openshorts-cpu:gta6-test \\
+            python main.py --url "$SOURCE_URL" --output /app/output --keep-original
+
+      - name: Verify MP4 output exists and is non-empty
+        run: |
+          find output -type f -name '*.mp4' -size +0c -print
+          count="$(find output -type f -name '*.mp4' -size +0c | wc -l)"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::Pipeline finished without producing an MP4."
+            exit 1
+          fi
+          echo "Verified $count non-empty MP4 file(s)."
+
+      - name: Upload MP4 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gta6-clips-mp4
+          path: output/**/*.mp4
+          if-no-files-found: error
+          retention-days: 1
+ || { echo "::error::YOUTUBE_COOKIES is not in Netscape cookies.txt format. Re-export it."; exit 1; }
+          echo "Required credentials are present; cookie format header validated. Values were not printed."
+
       - name: Build the project's CPU Docker image
         run: |
           docker build --build-arg GPU=0 --tag openshorts-cpu:gta6-test .
