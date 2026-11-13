@@ -2758,8 +2758,18 @@ if __name__ == '__main__':
         # directory we still need a filename: passing the directory through
         # ends up in os.remove() on it further down and dies with EACCES.
         output_file = args.output
-        if (not output_file or os.path.isdir(output_file)
-                or output_file.endswith(("/", os.sep))):
+        # A directory may not exist yet, so os.path.isdir() alone cannot
+        # distinguish it from a filename. Treat extensionless output paths as
+        # directories (the documented --output contract accepts a directory
+        # or a file) and create them before handing FFmpeg a destination.
+        is_output_directory = (
+            not output_file
+            or os.path.isdir(output_file)
+            or output_file.endswith(("/", os.sep))
+            or not os.path.splitext(output_file)[1]
+        )
+        if is_output_directory:
+            output_dir = _ensure_dir(output_file or output_dir)
             output_file = os.path.join(output_dir, f"{video_title}_vertical.mp4")
         render_clip(input_video, output_file, output_format)
     else:
